@@ -21,7 +21,7 @@ export class UserService {
     await this.userModel.create({ email, password: hashedPassword, name, mobileNumber });
   }
 
-  async login(email: string, encryptedPassword: string): Promise<{ accessToken: string }> {
+  async login(email: string, encryptedPassword: string): Promise<{ accessToken: string, userId: number }> {
     const decryptionKey: string = process.env.PASSWORD_ENCRYPTION_KEY;
     const decryptedBytes = CryptoJS.AES.decrypt(encryptedPassword, decryptionKey);
     const decryptedPassword: string = decryptedBytes.toString(CryptoJS.enc.Utf8);
@@ -35,7 +35,7 @@ export class UserService {
     const payload = { id: user.id, email: user.email };
     const token = await this.jwtAuthService.signToken(payload);
   
-    return { accessToken: token };
+    return { accessToken: token, userId: payload.id };
   }
 
   async getUserIdFromToken(token: string): Promise<number> {
