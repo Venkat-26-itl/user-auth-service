@@ -2,8 +2,9 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { User } from '../models/user.model';
 import * as bcrypt from 'bcrypt';
-import * as CryptoJS from "crypto-js";
+import * as CryptoJS from 'crypto-js';
 import { JwtAuthService } from 'src/jwt/jwt.service';
+import { Op } from 'sequelize';
 
 @Injectable()
 export class UserService {
@@ -13,28 +14,61 @@ export class UserService {
     private readonly jwtAuthService: JwtAuthService,
   ) {}
 
-  async signup(email: string, password: string, name: string, mobileNumber: string) {
-    const existingUser = await this.userModel.findOne({ where: { email } });
-    if (existingUser) throw new UnauthorizedException('Email already in use');
+  async signup(
+    email: string,
+    password: string,
+    name: string,
+    mobileNumber: string,
+  ) {
+    const existingUser = await this.userModel.findOne({
+      where: {
+        [Op.or]: [{ email }, { mobileNumber }],
+      },
+    });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await this.userModel.create({ email, password: hashedPassword, name, mobileNumber });
+    if (existingUser) {
+      throw new UnauthorizedException('Email or mobile number already in use');
+    }
+    const decryptionKey: string = process.env.PASSWORD_ENCRYPTION_KEY;
+    const decryptedBytes = CryptoJS.AES.decrypt(password, decryptionKey);
+    const decryptedPassword: string = decryptedBytes.toString(
+      CryptoJS.enc.Utf8,
+    );
+
+    const hashedPassword = await bcrypt.hash(decryptedPassword, 10);
+    await this.userModel.create({
+      email,
+      password: hashedPassword,
+      name,
+      mobileNumber,
+    });
   }
 
-  async login(email: string, encryptedPassword: string): Promise<{ accessToken: string, userId: number }> {
+  async login(
+    email: string,
+    password: string,
+  ): Promise<{ accessToken: string; userId: number }> {
     const decryptionKey: string = process.env.PASSWORD_ENCRYPTION_KEY;
-    const decryptedBytes = CryptoJS.AES.decrypt(encryptedPassword, decryptionKey);
-    const decryptedPassword: string = decryptedBytes.toString(CryptoJS.enc.Utf8);
-  
-    const user: User | null = await this.userModel.findOne({ where: { email } });
-    if (!user) throw new UnauthorizedException("Invalid credentials");
-  
-    const isPasswordMatching: boolean = await bcrypt.compare(decryptedPassword, user.password);
-    if (!isPasswordMatching) throw new UnauthorizedException("Invalid credentials");
-  
+    const decryptedBytes = CryptoJS.AES.decrypt(password, decryptionKey);
+    const decryptedPassword: string = decryptedBytes.toString(
+      CryptoJS.enc.Utf8,
+    );
+
+    const user: User | null = await this.userModel.findOne({
+      where: { email },
+    });
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    const isPasswordMatching: boolean = await bcrypt.compare(
+      decryptedPassword,
+      user.password,
+    );
+    if (!isPasswordMatching)
+      throw new UnauthorizedException('Invalid credentials');
+
     const payload = { id: user.id, email: user.email };
     const token = await this.jwtAuthService.signToken(payload);
-  
+
     return { accessToken: token, userId: payload.id };
   }
 
